@@ -285,7 +285,16 @@
       options: {
         animation: false, responsive: true, maintainAspectRatio: false,
         scales: {
-          x: { ticks: { color: "#8a96a8" }, grid: { color: "#2a3340" } },
+          x: {
+            ticks: {
+              color: "#8a96a8",
+              autoSkip: true,
+              maxTicksLimit: 8,
+              maxRotation: 0,
+              minRotation: 0,
+            },
+            grid: { color: "#2a3340" },
+          },
           y: { title: { display: true, text: yLabel, color: "#8a96a8" }, ticks: { color: "#8a96a8" }, grid: { color: "#2a3340" } },
         },
         plugins: { legend: { labels: { color: "#e8edf2" } } },
@@ -295,9 +304,14 @@
     state.chartI = new Chart($("#chartI"), baseOpts("Amps"));
   }
 
+  function fmtTime24(d) {
+    const p = (n) => String(n).padStart(2, "0");
+    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  }
+
   function pushChartPoint(snap) {
     const MAX = 120; // ~60s at 2Hz
-    const ts = new Date().toLocaleTimeString();
+    const ts = fmtTime24(new Date());
     state.chartData.t.push(ts);
     if (state.chartData.t.length > MAX) state.chartData.t.shift();
     for (const ch of CHANNELS) {
