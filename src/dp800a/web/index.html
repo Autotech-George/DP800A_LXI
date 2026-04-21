@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Rigol DP800A Control</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo-dot"></span>
+      <h1>Rigol DP800A Control</h1>
+    </div>
+    <div class="conn">
+      <select id="discoveredList" title="Discovered LXI devices">
+        <option value="">— discovered devices —</option>
+      </select>
+      <button id="discoverBtn" type="button">Discover</button>
+      <input id="resourceInput" type="text" placeholder="TCPIP0::192.168.1.50::INSTR" size="34"/>
+      <button id="connectBtn" type="button" class="primary">Connect</button>
+      <button id="disconnectBtn" type="button">Disconnect</button>
+      <span id="statusLed" class="led off" title="Disconnected"></span>
+      <span id="idnLabel" class="idn">not connected</span>
+      <button id="settingsBtn" type="button" class="ghost" title="Settings">⚙</button>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section id="channels" class="channels"></section>
+
+    <section class="systemBar">
+      <div class="card">
+        <h3>Tracking</h3>
+        <label class="switch">
+          <input type="checkbox" id="trackingToggle"/>
+          <span class="slider"></span>
+          <span>Enable tracking mode (CH1↔CH2)</span>
+        </label>
+      </div>
+      <div class="card">
+        <h3>Memory</h3>
+        <div class="row">
+          <label>Slot
+            <select id="memorySlot">
+              <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
+              <option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
+            </select>
+          </label>
+          <button id="saveBtn" type="button">Save (*SAV)</button>
+          <button id="recallBtn" type="button">Recall (*RCL)</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Live Chart (V)</h3>
+        <canvas id="chartV" height="120"></canvas>
+      </div>
+      <div class="card">
+        <h3>Live Chart (I)</h3>
+        <canvas id="chartI" height="120"></canvas>
+      </div>
+    </section>
+
+    <section class="card collapsible" id="rawCard" hidden>
+      <h3>Raw SCPI <small>(advanced — disabled by default)</small></h3>
+      <div class="row">
+        <input id="rawInput" type="text" placeholder="*IDN?" />
+        <label><input type="checkbox" id="rawExpect" checked/> expect response</label>
+        <button id="rawSendBtn" type="button">Send</button>
+      </div>
+      <pre id="rawOutput"></pre>
+    </section>
+  </main>
+
+  <!-- Settings modal -->
+  <dialog id="settingsDialog">
+    <form method="dialog" id="settingsForm">
+      <h2>Settings</h2>
+      <p class="hint">Configure per-channel safety caps and advanced options. Changes are saved to <code>~/.dp800a/config.json</code>.</p>
+      <table class="limits">
+        <thead><tr><th>Channel</th><th>Max V</th><th>Max I</th></tr></thead>
+        <tbody id="limitsBody"></tbody>
+      </table>
+      <label class="switch">
+        <input type="checkbox" id="rawEnabled"/>
+        <span>Enable Raw SCPI console</span>
+      </label>
+      <menu>
+        <button value="cancel" type="submit">Cancel</button>
+        <button id="saveSettingsBtn" value="default" type="submit" class="primary">Save</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <!-- Confirm output dialog -->
+  <dialog id="confirmDialog">
+    <form method="dialog">
+      <h2 id="confirmTitle">Enable output?</h2>
+      <p id="confirmBody"></p>
+      <menu>
+        <button value="cancel" type="submit">Cancel</button>
+        <button value="ok" type="submit" class="danger">Enable</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <div id="toast"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
