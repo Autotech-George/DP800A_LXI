@@ -72,6 +72,8 @@ main.grid { padding: 18px; display: flex; flex-direction: column; gap: 18px; max
 
 .systemBar { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; box-shadow: var(--shadow); }
+.chart-wrap { position: relative; width: 100%; height: 180px; }
+.chart-wrap canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; }
 
 .switch { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .switch input { transform: scale(1.2); }
