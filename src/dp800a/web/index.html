@@ -55,7 +55,21 @@
     </section>
 
     <section class="card chart-card">
-      <h3>Live Chart (V)</h3>
+      <div class="chart-header">
+        <h3>Live Chart (V)</h3>
+        <label class="timebase">Timebase
+          <select id="timebaseSel">
+            <option value="10">10 s</option>
+            <option value="30">30 s</option>
+            <option value="60" selected>1 min</option>
+            <option value="120">2 min</option>
+            <option value="300">5 min</option>
+            <option value="600">10 min</option>
+            <option value="1800">30 min</option>
+          </select>
+        </label>
+        <button id="clearChartsBtn" type="button" class="ghost" title="Clear chart history">Clear</button>
+      </div>
       <div class="chart-wrap chart-wrap-wide"><canvas id="chartV"></canvas></div>
     </section>
 

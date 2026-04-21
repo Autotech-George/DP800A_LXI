@@ -1,13 +1,17 @@
 /* DP800A web GUI */
 (() => {
   const CHANNELS = [1, 2, 3];
+  const CH_COLORS = ["#4cc2ff", "#ffb454", "#6dd16d"];
+  const SAMPLE_HZ = 2;          // matches server-side WS push rate
+  const DIVISIONS = 10;         // oscilloscope-style major divisions across X
   const state = {
     config: null,
     connected: false,
     snapshot: null,
     ws: null,
     wsBackoff: 1000,
-    chartData: { v: { 1: [], 2: [], 3: [] }, i: { 1: [], 2: [], 3: [] }, t: [] },
+    samples: [],                // ring buffer: [{ t: epoch_ms, v:[...], i:[...] }]
+    windowSec: 60,              // visible timebase
     chartV: null,
     chartI: null,
   };
@@ -270,62 +274,154 @@
   }
 
   // ---- charts ----------------------------------------------------------
+  function fmtTime24(d) {
+    const p = (n) => String(n).padStart(2, "0");
+    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  }
+
+  function niceStep(windowSec, divisions) {
+    // Pick a "nice" step so divisions land on whole-second boundaries.
+    const raw = windowSec / divisions;
+    const candidates = [1, 2, 5, 10, 15, 20, 30, 60, 120, 300, 600, 900, 1800, 3600];
+    for (const c of candidates) if (c >= raw) return c;
+    return raw;
+  }
+
   function initCharts() {
     const baseOpts = (yLabel) => ({
       type: "line",
       data: {
-        labels: state.chartData.t,
         datasets: CHANNELS.map((ch, idx) => ({
           label: `CH${ch}`,
-          data: [],
-          borderWidth: 2, pointRadius: 0, tension: 0.25,
-          borderColor: ["#4cc2ff", "#ffb454", "#6dd16d"][idx],
+          data: [],            // [{x: secondsAgo (negative), y: value}]
+          borderWidth: 2, pointRadius: 0, tension: 0.15,
+          borderColor: CH_COLORS[idx],
+          spanGaps: false,
+          parsing: false,
         })),
       },
       options: {
-        animation: false, responsive: true, maintainAspectRatio: false,
+        animation: false,
+        responsive: true,
+        maintainAspectRatio: false,
+        normalized: true,
         scales: {
           x: {
+            type: "linear",
+            min: -state.windowSec,
+            max: 0,
+            offset: false,
+            bounds: "ticks",
             ticks: {
               color: "#8a96a8",
-              autoSkip: true,
-              maxTicksLimit: 8,
+              autoSkip: false,
               maxRotation: 0,
               minRotation: 0,
+              stepSize: niceStep(state.windowSec, DIVISIONS),
+              // Label = absolute wall-clock time at that division (24h)
+              callback: (value) => fmtTime24(new Date(Date.now() + value * 1000)),
             },
             grid: { color: "#2a3340" },
           },
-          y: { title: { display: true, text: yLabel, color: "#8a96a8" }, ticks: { color: "#8a96a8" }, grid: { color: "#2a3340" } },
+          y: {
+            title: { display: true, text: yLabel, color: "#8a96a8" },
+            ticks: { color: "#8a96a8" },
+            grid: { color: "#2a3340" },
+          },
         },
-        plugins: { legend: { labels: { color: "#e8edf2" } } },
+        plugins: {
+          legend: { labels: { color: "#e8edf2" } },
+          tooltip: {
+            callbacks: {
+              title: (items) => items.length
+                ? fmtTime24(new Date(Date.now() + items[0].parsed.x * 1000))
+                : "",
+            },
+          },
+        },
       },
     });
     state.chartV = new Chart($("#chartV"), baseOpts("Volts"));
     state.chartI = new Chart($("#chartI"), baseOpts("Amps"));
   }
 
-  function fmtTime24(d) {
-    const p = (n) => String(n).padStart(2, "0");
-    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  function applyTimebase(windowSec) {
+    state.windowSec = windowSec;
+    const step = niceStep(windowSec, DIVISIONS);
+    for (const chart of [state.chartV, state.chartI]) {
+      if (!chart) continue;
+      chart.options.scales.x.min = -windowSec;
+      chart.options.scales.x.max = 0;
+      chart.options.scales.x.ticks.stepSize = step;
+    }
+    redrawCharts();
   }
 
-  function pushChartPoint(snap) {
-    const MAX = 120; // ~60s at 2Hz
-    const ts = fmtTime24(new Date());
-    state.chartData.t.push(ts);
-    if (state.chartData.t.length > MAX) state.chartData.t.shift();
-    for (const ch of CHANNELS) {
-      const c = snap.channels?.find((x) => x.channel === ch);
-      const v = c ? c.measurement.voltage : null;
-      const i = c ? c.measurement.current : null;
-      const dv = state.chartV.data.datasets[ch - 1];
-      const di = state.chartI.data.datasets[ch - 1];
-      dv.data.push(v); di.data.push(i);
-      if (dv.data.length > MAX) dv.data.shift();
-      if (di.data.length > MAX) di.data.shift();
+  function pruneSamples() {
+    // Keep a small margin beyond the visible window so points just leaving
+    // the screen still draw to the edge.
+    const cutoff = Date.now() - (state.windowSec + 5) * 1000;
+    while (state.samples.length && state.samples[0].t < cutoff) {
+      state.samples.shift();
+    }
+    // Hard cap: longest timebase is 30 min @ 2 Hz = 3600 samples.
+    const HARD_CAP = 4096;
+    if (state.samples.length > HARD_CAP) {
+      state.samples.splice(0, state.samples.length - HARD_CAP);
+    }
+  }
+
+  function redrawCharts() {
+    if (!state.chartV || !state.chartI) return;
+    const now = Date.now();
+    for (let idx = 0; idx < CHANNELS.length; idx++) {
+      const vData = state.chartV.data.datasets[idx].data;
+      const iData = state.chartI.data.datasets[idx].data;
+      vData.length = 0;
+      iData.length = 0;
+      for (const s of state.samples) {
+        const x = (s.t - now) / 1000; // seconds-ago, <= 0
+        const v = s.v[idx];
+        const i = s.i[idx];
+        if (v != null) vData.push({ x, y: v });
+        if (i != null) iData.push({ x, y: i });
+      }
     }
     state.chartV.update("none");
     state.chartI.update("none");
+  }
+
+  function pushChartPoint(snap) {
+    const sample = { t: Date.now(), v: [null, null, null], i: [null, null, null] };
+    for (let idx = 0; idx < CHANNELS.length; idx++) {
+      const ch = CHANNELS[idx];
+      const c = snap.channels?.find((x) => x.channel === ch);
+      if (c) {
+        sample.v[idx] = c.measurement.voltage;
+        sample.i[idx] = c.measurement.current;
+      }
+    }
+    state.samples.push(sample);
+    pruneSamples();
+    redrawCharts();
+  }
+
+  function wireChartControls() {
+    const sel = $("#timebaseSel");
+    if (sel) {
+      sel.addEventListener("change", () => {
+        const v = parseInt(sel.value, 10);
+        if (Number.isFinite(v) && v > 0) applyTimebase(v);
+      });
+    }
+    const clearBtn = $("#clearChartsBtn");
+    if (clearBtn) {
+      clearBtn.addEventListener("click", () => {
+        state.samples.length = 0;
+        redrawCharts();
+        toast("Chart history cleared");
+      });
+    }
   }
 
   // ---- settings --------------------------------------------------------
@@ -395,6 +491,10 @@
     wireSystemBar();
     wireSettings();
     initCharts();
+    wireChartControls();
+    // Continuous redraw so the trace scrolls left even when no new sample
+    // has arrived yet (keeps the time axis flowing in real time).
+    setInterval(redrawCharts, 1000 / SAMPLE_HZ);
     try {
       await loadConfig();
       renderChannelCards();

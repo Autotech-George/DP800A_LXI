@@ -76,6 +76,10 @@ main.grid { padding: 18px; display: flex; flex-direction: column; gap: 18px; max
 .chart-wrap-wide { height: 280px; }
 .chart-wrap canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; }
 .chart-card { width: 100%; }
+.chart-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.chart-header h3 { margin: 0; }
+.chart-header .timebase { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: .8rem; margin-left: auto; }
+.chart-header .timebase select { padding: 4px 8px; }
 
 .switch { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .switch input { transform: scale(1.2); }
