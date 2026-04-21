@@ -332,12 +332,31 @@
         plugins: {
           legend: { labels: { color: "#e8edf2" } },
           tooltip: {
+            enabled: true,
+            mode: "index",
+            intersect: false,
+            position: "nearest",
             callbacks: {
               title: (items) => items.length
                 ? fmtTime24(new Date(Date.now() + items[0].parsed.x * 1000))
                 : "",
+              label: (item) => {
+                const unit = yLabel === "Volts" ? "V" : "A";
+                const y = item.parsed.y;
+                return `${item.dataset.label}: ${Number.isFinite(y) ? y.toFixed(3) : "—"} ${unit}`;
+              },
             },
           },
+        },
+        interaction: {
+          mode: "index",
+          intersect: false,
+          axis: "x",
+        },
+        hover: {
+          mode: "index",
+          intersect: false,
+          axis: "x",
         },
       },
     });
