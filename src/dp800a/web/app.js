@@ -1,7 +1,7 @@
 /* DP800A web GUI */
 (() => {
   const CHANNELS = [1, 2, 3];
-  const CH_COLORS = ["#4cc2ff", "#ffb454", "#6dd16d"];
+  const CH_COLORS = ["#FEE123", "#48C7F2", "#EA5897"];
   const SAMPLE_HZ = 2;          // matches server-side WS push rate
   const DIVISIONS = 10;         // oscilloscope-style major divisions across X
   const state = {
