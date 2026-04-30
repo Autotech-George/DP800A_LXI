@@ -117,11 +117,19 @@
       card.querySelector("[data-toggle]").textContent = c.output_on ? "Turn OFF" : "Turn ON";
       // reflect protection state if user not editing
       const ovp = card.querySelector("[data-ovp]");
+      const ovpEn = card.querySelector("[data-ovp-en]");
       const ocp = card.querySelector("[data-ocp]");
-      if (document.activeElement !== ovp) ovp.value = c.ovp_value.toFixed(2);
-      if (document.activeElement !== ocp) ocp.value = c.ocp_value.toFixed(2);
-      card.querySelector("[data-ovp-en]").checked = c.ovp_enabled;
-      card.querySelector("[data-ocp-en]").checked = c.ocp_enabled;
+      const ocpEn = card.querySelector("[data-ocp-en]");
+      const ovpRowActive = document.activeElement === ovp || document.activeElement === ovpEn;
+      const ocpRowActive = document.activeElement === ocp || document.activeElement === ocpEn;
+      if (!ovpRowActive) {
+        ovp.value = c.ovp_value.toFixed(2);
+        ovpEn.checked = c.ovp_enabled;
+      }
+      if (!ocpRowActive) {
+        ocp.value = c.ocp_value.toFixed(2);
+        ocpEn.checked = c.ocp_enabled;
+      }
     }
     pushChartPoint(snap);
   }
