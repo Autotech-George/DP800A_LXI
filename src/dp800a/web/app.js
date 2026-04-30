@@ -1,6 +1,12 @@
 /* DP800A web GUI */
 (() => {
   const CHANNELS = [1, 2, 3];
+  // Hardware limits per datasheet — used for tooltip hints and input constraints.
+  const HARDWARE_LIMITS = {
+    "1": { max_voltage: 30, max_current: 3, max_ovp: 33,  max_ocp: 3.3, min_ovp: 0.001, min_ocp: 0.001 },
+    "2": { max_voltage: 30, max_current: 3, max_ovp: 33,  max_ocp: 3.3, min_ovp: 0.001, min_ocp: 0.001 },
+    "3": { max_voltage: 5,  max_current: 3, max_ovp: 5.5, max_ocp: 3.3, min_ovp: 0.001, min_ocp: 0.001 },
+  };
   const CH_COLORS = ["#FEE123", "#48C7F2", "#EA5897"];
   const SAMPLE_HZ = 2;          // matches server-side WS push rate
   const DIVISIONS = 10;         // oscilloscope-style major divisions across X
@@ -50,7 +56,7 @@
     const root = $("#channels");
     root.innerHTML = "";
     for (const ch of CHANNELS) {
-      const cap = state.config?.limits?.[String(ch)] || { max_voltage: 30, max_current: 3 };
+      const cap = state.config?.limits?.[String(ch)] || HARDWARE_LIMITS[String(ch)];
       const card = document.createElement("div");
       card.className = "channel-card";
       card.dataset.channel = ch;
@@ -61,10 +67,10 @@
         </header>
         <div class="row">
           <label>Set Voltage (V)
-            <input type="number" step="0.001" min="0" max="${cap.max_voltage}" data-set-v value="0"/>
+            <input type="number" step="0.001" min="0" max="${cap.max_voltage}" data-set-v value="0" title="Range: 0 – ${cap.max_voltage} V"/>
           </label>
           <label>Set Current (A)
-            <input type="number" step="0.001" min="0" max="${cap.max_current}" data-set-i value="0"/>
+            <input type="number" step="0.001" min="0" max="${cap.max_current}" data-set-i value="0" title="Range: 0 – ${cap.max_current} A"/>
           </label>
           <button data-apply class="primary">Apply</button>
           <button data-toggle>Turn ON</button>
@@ -76,13 +82,13 @@
         </div>
         <div class="protect-row" style="margin-top:10px">
           <span class="lbl">OVP</span>
-          <input type="number" step="0.01" min="0" max="${cap.max_voltage}" data-ovp value="0"/>
+          <input type="number" step="0.001" min="${cap.min_ovp}" max="${cap.max_ovp}" data-ovp value="${cap.min_ovp}" title="OVP range: ${cap.min_ovp} – ${cap.max_ovp} V"/>
           <label class="inline"><input type="checkbox" data-ovp-en/> enabled</label>
           <button data-ovp-apply>Apply OVP</button>
         </div>
         <div class="protect-row">
           <span class="lbl">OCP</span>
-          <input type="number" step="0.01" min="0" max="${cap.max_current}" data-ocp value="0"/>
+          <input type="number" step="0.001" min="${cap.min_ocp}" max="${cap.max_ocp}" data-ocp value="${cap.min_ocp}" title="OCP range: ${cap.min_ocp} – ${cap.max_ocp} A"/>
           <label class="inline"><input type="checkbox" data-ocp-en/> enabled</label>
           <button data-ocp-apply>Apply OCP</button>
         </div>
@@ -458,12 +464,15 @@
       const body = $("#limitsBody");
       body.innerHTML = "";
       for (const ch of CHANNELS) {
-        const lim = state.config.limits[String(ch)] || { max_voltage: 30, max_current: 3 };
+        const lim = state.config.limits[String(ch)] || HARDWARE_LIMITS[String(ch)];
+        const hw = HARDWARE_LIMITS[String(ch)];
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td>CH${ch}</td>
-          <td><input type="number" step="0.1" min="0" data-cap-v="${ch}" value="${lim.max_voltage}"/></td>
-          <td><input type="number" step="0.1" min="0" data-cap-i="${ch}" value="${lim.max_current}"/></td>
+          <td><input type="number" step="0.1" min="0" max="${hw.max_voltage}" data-cap-v="${ch}" value="${lim.max_voltage}" title="Software cap · hardware max: ${hw.max_voltage} V"/></td>
+          <td><input type="number" step="0.1" min="0" max="${hw.max_current}" data-cap-i="${ch}" value="${lim.max_current}" title="Software cap · hardware max: ${hw.max_current} A"/></td>
+          <td><input type="number" step="0.001" min="${hw.min_ovp}" max="${hw.max_ovp}" data-cap-ovp="${ch}" value="${lim.max_ovp ?? hw.max_ovp}" title="OVP cap · hardware range: ${hw.min_ovp}–${hw.max_ovp} V"/></td>
+          <td><input type="number" step="0.001" min="${hw.min_ocp}" max="${hw.max_ocp}" data-cap-ocp="${ch}" value="${lim.max_ocp ?? hw.max_ocp}" title="OCP cap · hardware range: ${hw.min_ocp}–${hw.max_ocp} A"/></td>
         `;
         body.appendChild(tr);
       }
@@ -479,6 +488,8 @@
         limits[String(ch)] = {
           max_voltage: parseFloat(document.querySelector(`[data-cap-v="${ch}"]`).value),
           max_current: parseFloat(document.querySelector(`[data-cap-i="${ch}"]`).value),
+          max_ovp: parseFloat(document.querySelector(`[data-cap-ovp="${ch}"]`).value),
+          max_ocp: parseFloat(document.querySelector(`[data-cap-ocp="${ch}"]`).value),
         };
       }
       const newCfg = { ...state.config, limits, raw_scpi_enabled: $("#rawEnabled").checked };

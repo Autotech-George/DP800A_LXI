@@ -188,6 +188,16 @@ class DP800ADriver:
     # OVP -------------------------------------------------------------------
     def set_ovp(self, channel: int, value: float) -> None:
         self._check_channel(channel)
+        limits = self._config.limits.get(str(channel))
+        if limits is not None:
+            if value < limits.min_ovp:
+                raise DriverError(
+                    f"OVP {value} V is below minimum {limits.min_ovp} V for CH{channel}"
+                )
+            if value > limits.max_ovp:
+                raise DriverError(
+                    f"OVP {value} V exceeds configured cap {limits.max_ovp} V for CH{channel}"
+                )
         self._write(f"OUTP:OVP:VAL CH{channel},{value:.4f}")
 
     def set_ovp_enabled(self, channel: int, enabled: bool) -> None:
@@ -209,6 +219,16 @@ class DP800ADriver:
     # OCP -------------------------------------------------------------------
     def set_ocp(self, channel: int, value: float) -> None:
         self._check_channel(channel)
+        limits = self._config.limits.get(str(channel))
+        if limits is not None:
+            if value < limits.min_ocp:
+                raise DriverError(
+                    f"OCP {value} A is below minimum {limits.min_ocp} A for CH{channel}"
+                )
+            if value > limits.max_ocp:
+                raise DriverError(
+                    f"OCP {value} A exceeds configured cap {limits.max_ocp} A for CH{channel}"
+                )
         self._write(f"OUTP:OCP:VAL CH{channel},{value:.4f}")
 
     def set_ocp_enabled(self, channel: int, enabled: bool) -> None:

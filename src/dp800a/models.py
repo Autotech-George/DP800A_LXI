@@ -54,15 +54,19 @@ class RawScpiResponse(BaseModel):
 class ChannelLimits(BaseModel):
     max_voltage: float = Field(30.0, ge=0)
     max_current: float = Field(3.0, ge=0)
+    max_ovp: float = Field(33.0, ge=0)
+    max_ocp: float = Field(3.30, ge=0)
+    min_ovp: float = Field(0.001, ge=0)  # hardware minimum: 1 mV
+    min_ocp: float = Field(0.001, ge=0)  # hardware minimum: 1 mA
 
 
 class AppConfig(BaseModel):
     last_resource: Optional[str] = None
     limits: dict[str, ChannelLimits] = Field(
         default_factory=lambda: {
-            "1": ChannelLimits(max_voltage=8.0, max_current=5.0),
-            "2": ChannelLimits(max_voltage=30.0, max_current=2.0),
-            "3": ChannelLimits(max_voltage=30.0, max_current=2.0),
+            "1": ChannelLimits(max_voltage=30.0, max_current=3.0, max_ovp=33.0, max_ocp=3.30),
+            "2": ChannelLimits(max_voltage=30.0, max_current=3.0, max_ovp=33.0, max_ocp=3.30),
+            "3": ChannelLimits(max_voltage=5.0,  max_current=3.0, max_ovp=5.5,  max_ocp=3.30),
         }
     )
     raw_scpi_enabled: bool = False
