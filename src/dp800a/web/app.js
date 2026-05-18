@@ -26,12 +26,19 @@
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
-  function toast(msg, kind = "ok") {
+  function toast(msg, kind = "ok", options = {}) {
+    const { sticky = false } = options;
     const t = $("#toast");
     t.textContent = msg;
     t.className = "show " + kind;
+    t.dataset.sticky = sticky ? "1" : "0";
     clearTimeout(toast._t);
-    toast._t = setTimeout(() => (t.className = ""), 3500);
+    if (!sticky) {
+      toast._t = setTimeout(() => {
+        if (t.dataset.sticky === "1") return;
+        t.className = "";
+      }, 3500);
+    }
   }
 
   async function api(path, opts = {}) {
@@ -50,6 +57,18 @@
   }
 
   function fmt(n, d = 3) { return Number.isFinite(n) ? n.toFixed(d) : "—"; }
+
+  function setDiscoveryStatus(kind, message) {
+    const status = $("#discoverStatus");
+    const text = $("#discoverStatusText");
+    if (!status || !text) return;
+    status.className = `discover-status ${kind}`;
+    text.textContent = message;
+  }
+
+  function timeStamp() {
+    return new Date().toLocaleTimeString([], { hour12: false });
+  }
 
   // ---- channel cards ---------------------------------------------------
   function renderChannelCards() {
@@ -213,9 +232,17 @@
 
   // ---- connection ------------------------------------------------------
   function wireConnection() {
-    $("#discoverBtn").addEventListener("click", async () => {
-      $("#discoverBtn").disabled = true;
-      toast("Scanning network...");
+    const discoverBtn = $("#discoverBtn");
+    setDiscoveryStatus("idle", "No discovery scan yet.");
+
+    discoverBtn.addEventListener("click", async () => {
+      const started = performance.now();
+      discoverBtn.disabled = true;
+      discoverBtn.classList.add("is-busy");
+      discoverBtn.textContent = "Scanning...";
+      discoverBtn.setAttribute("aria-busy", "true");
+      setDiscoveryStatus("busy", "Discovery in progress...");
+      toast("Scanning network...", "ok", { sticky: true });
       try {
         const list = await api("/api/discover");
         const sel = $("#discoveredList");
@@ -226,9 +253,32 @@
           opt.textContent = `${d.name} @ ${d.host}`;
           sel.appendChild(opt);
         }
+        if (list.length > 0) {
+          sel.value = list[0].resource;
+          sel.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+        const elapsed = ((performance.now() - started) / 1000).toFixed(1);
+        if (list.length > 0) {
+          setDiscoveryStatus(
+            "done",
+            `Discovery complete at ${timeStamp()}: found ${list.length} device(s) in ${elapsed}s.`
+          );
+        } else {
+          setDiscoveryStatus(
+            "warn",
+            `Discovery complete at ${timeStamp()}: no devices found in ${elapsed}s.`
+          );
+        }
         toast(`Found ${list.length} device(s)`);
-      } catch (e) { toast(e.message, "err"); }
-      $("#discoverBtn").disabled = false;
+      } catch (e) {
+        const msg = e?.message || String(e);
+        setDiscoveryStatus("error", `Discovery failed at ${timeStamp()}: ${msg}`);
+        toast(msg, "err");
+      }
+      discoverBtn.disabled = false;
+      discoverBtn.classList.remove("is-busy");
+      discoverBtn.textContent = "Discover";
+      discoverBtn.setAttribute("aria-busy", "false");
     });
     $("#discoveredList").addEventListener("change", (e) => {
       if (e.target.value) $("#resourceInput").value = e.target.value;

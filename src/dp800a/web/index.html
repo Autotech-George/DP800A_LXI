@@ -18,6 +18,10 @@
         <option value="">— discovered devices —</option>
       </select>
       <button id="discoverBtn" type="button">Discover</button>
+      <div id="discoverStatus" class="discover-status idle" role="status" aria-live="polite">
+        <span class="indicator" aria-hidden="true"></span>
+        <span id="discoverStatusText">No discovery scan yet.</span>
+      </div>
       <input id="resourceInput" type="text" placeholder="TCPIP0::192.168.1.50::INSTR" size="34"/>
       <button id="connectBtn" type="button" class="primary">Connect</button>
       <button id="disconnectBtn" type="button">Disconnect</button>

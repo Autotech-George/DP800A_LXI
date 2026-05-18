@@ -28,10 +28,61 @@ small { color: var(--muted); font-weight: normal; }
 .brand { display: flex; align-items: center; gap: 10px; }
 .logo-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
 .conn { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.discover-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: .8rem;
+  white-space: nowrap;
+}
+.discover-status .indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #606e82;
+  flex: 0 0 auto;
+}
+.discover-status.busy {
+  border-color: #2f5f80;
+  color: var(--accent);
+}
+.discover-status.busy .indicator {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #2f5f80;
+  border-top-color: var(--accent);
+  background: transparent;
+  animation: discover-spin .75s linear infinite;
+}
+.discover-status.done {
+  border-color: #2f6a2f;
+  color: #a9e1a9;
+}
+.discover-status.done .indicator { background: var(--ok); box-shadow: 0 0 8px rgba(109, 209, 109, .55); }
+.discover-status.warn {
+  border-color: #6f5627;
+  color: #ffd8a1;
+}
+.discover-status.warn .indicator { background: var(--warn); }
+.discover-status.error {
+  border-color: #713b3b;
+  color: #ffd4d4;
+}
+.discover-status.error .indicator { background: var(--err); }
 .idn { font-family: ui-monospace, Menlo, Consolas, monospace; color: var(--muted); font-size: .85rem; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .led { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #444; }
 .led.on { background: var(--ok); box-shadow: 0 0 10px var(--ok); }
 .led.off { background: #555; }
+
+@keyframes discover-spin {
+  to { transform: rotate(360deg); }
+}
 
 button, input, select {
   background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
@@ -40,6 +91,22 @@ button, input, select {
 button { cursor: pointer; transition: background .15s, transform .05s; }
 button:hover { background: #2a313c; }
 button:active { transform: translateY(1px); }
+button:disabled {
+  cursor: not-allowed;
+  opacity: .58;
+  transform: none;
+  filter: saturate(.35);
+}
+button:disabled:hover { background: var(--panel-2); }
+button.primary:disabled,
+button.primary:disabled:hover {
+  background: #2f4c5d;
+  border-color: #2f4c5d;
+  color: #9ec7db;
+}
+button#discoverBtn.is-busy {
+  letter-spacing: .02em;
+}
 button.primary { background: var(--accent); color: #06121b; border-color: var(--accent); font-weight: 600; }
 button.primary:hover { background: #6cd0ff; }
 button.danger { background: var(--err); color: white; border-color: var(--err); }
