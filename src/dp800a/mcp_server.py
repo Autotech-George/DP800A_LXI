@@ -244,13 +244,59 @@ async def call_tool(name: str, arguments: dict | None) -> list[TextContent]:
         return _err(str(e))
 
 
-async def _run() -> None:
+async def _run_stdio() -> None:
     async with stdio_server() as (read, write):
         await server.run(read, write, server.create_initialization_options())
 
 
+def _build_http_app():
+    """Build a Starlette app serving the MCP server over Streamable HTTP at /mcp.
+
+    Imports Starlette here (not at module scope) so the default stdio path stays
+    dependency-light. `security_settings` is left at None, which the SDK maps to
+    "DNS-rebinding protection off" — the intended posture behind Tailscale/LAN,
+    where the network is the trust boundary rather than the Host/Origin header.
+    """
+    import contextlib
+    from collections.abc import AsyncIterator
+
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+    from starlette.applications import Starlette
+    from starlette.routing import Mount
+    from starlette.types import Receive, Scope, Send
+
+    session_manager = StreamableHTTPSessionManager(app=server)
+
+    async def handle_mcp(scope: Scope, receive: Receive, send: Send) -> None:
+        await session_manager.handle_request(scope, receive, send)
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_app: Starlette) -> AsyncIterator[None]:
+        async with session_manager.run():
+            yield
+
+    return Starlette(routes=[Mount("/mcp", app=handle_mcp)], lifespan=lifespan)
+
+
 def main() -> None:
-    asyncio.run(_run())
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run the DP800A MCP server")
+    parser.add_argument(
+        "--http",
+        action="store_true",
+        help="Serve over Streamable HTTP instead of stdio, e.g. to run as a network service.",
+    )
+    parser.add_argument("--host", default="127.0.0.1", help="Bind host for --http (default 127.0.0.1).")
+    parser.add_argument("--port", type=int, default=8000, help="Bind port for --http (default 8000).")
+    args = parser.parse_args()
+
+    if args.http:
+        import uvicorn
+
+        uvicorn.run(_build_http_app(), host=args.host, port=args.port)
+    else:
+        asyncio.run(_run_stdio())
 
 
 if __name__ == "__main__":
