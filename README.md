@@ -110,6 +110,42 @@ Tools exposed:
 Try: *"Connect to the DP800A at 192.168.1.50, set CH1 to 3.3 V / 0.5 A, and
 turn it on."*
 
+## Run the MCP server as a network service
+
+By default `dp800a-mcp` speaks MCP over **stdio**, so the client launches it
+locally. To make one shared instance reachable from any machine — e.g. to
+control the supply while working remotely — run it over **Streamable HTTP** on
+the same host as `dp800a-web`:
+
+```bash
+dp800a-mcp --http --host 0.0.0.0 --port 8000   # endpoint: http://<host>:8000/mcp/
+```
+
+The HTTP server is still just a client to the REST backend on the same host
+(`DP800A_API_BASE`, default `http://127.0.0.1:8765`), so `dp800a-web` must be
+running too.
+
+On Linux, install it as a service with the provided unit
+[`deploy/dp800a-mcp.service`](deploy/dp800a-mcp.service) (adjust `User`,
+`WorkingDirectory`, and the venv path to match your host):
+
+```bash
+sudo cp deploy/dp800a-mcp.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now dp800a-mcp
+```
+
+Register it in Claude Code from any machine — no local install needed, and note
+the **trailing slash** on `/mcp/` (the mount redirects `/mcp` → `/mcp/`):
+
+```bash
+claude mcp add --transport http --scope user dp800a http://<host>:8000/mcp/
+```
+
+**Security:** the MCP HTTP endpoint has no authentication and controls a physical
+power supply. Keep it on a trusted/loopback network or reach it over a VPN
+(e.g. Tailscale); never port-forward it to the public internet.
+
 ## Project layout
 
 ```

@@ -1,0 +1,26 @@
+[Unit]
+Description=DP800A MCP server (Streamable HTTP transport)
+# The MCP server is a thin client to the dp800a-web REST backend, which must be
+# running on this host (default http://127.0.0.1:8765). If you also run the web
+# backend as a systemd unit named dp800a-web.service, uncomment the two lines
+# below so systemd starts them in order and keeps them together:
+#After=dp800a-web.service
+#Requires=dp800a-web.service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tech
+WorkingDirectory=/home/tech/DP800A_LXI
+# Adjust the path if the venv lives elsewhere, or point at the dp800a-mcp entry
+# point from however the package was installed on this host.
+ExecStart=/home/tech/DP800A_LXI/.venv/bin/dp800a-mcp --http --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=2
+
+# The backend URL defaults to http://127.0.0.1:8765; pin it explicitly if needed.
+#Environment=DP800A_API_BASE=http://127.0.0.1:8765
+
+[Install]
+WantedBy=multi-user.target
