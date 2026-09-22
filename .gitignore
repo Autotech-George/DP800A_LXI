@@ -9,3 +9,5 @@ dist/
 .coverage
 htmlcov/
 .DS_Store
+skill-dist/
+.claude/settings.local.json
