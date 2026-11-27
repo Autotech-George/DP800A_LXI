@@ -8,9 +8,10 @@ PyVISA) from:
 - **An MCP server** — let Claude Code (or any MCP-aware agent) drive the
   instrument with the same SCPI vocabulary.
 
-A single VISA session lives in the FastAPI backend. The MCP server is a thin
-HTTP client to that backend, so the browser GUI and Claude can be active at the
-same time without fighting over the instrument.
+The MCP server does **not** need the web GUI. By default (`--backend auto`) it
+forwards to `dp800a-web` when that is running — so the browser GUI and Claude
+share one VISA session — and otherwise hosts the same REST routes in-process and
+opens the instrument itself.
 
 ## SCPI commands wrapped
 
@@ -65,11 +66,25 @@ Configuration is persisted to `~/.dp800a/config.json` (override with the
 
 ## Run the MCP server
 
-The MCP server talks to the running web backend, so start `dp800a-web` first.
-
 ```powershell
-dp800a-mcp
+dp800a-mcp                     # auto: use dp800a-web if running, else drive the instrument directly
+dp800a-mcp --backend local     # always own the VISA session in-process (no web GUI)
+dp800a-mcp --backend rest      # always go through dp800a-web (old behaviour)
 ```
+
+The backend can also be set with `DP800A_MCP_BACKEND=auto|rest|local`.
+
+- **auto** (default) probes `DP800A_API_BASE/api/health` (cached 5 s). If the web
+  backend answers, calls go there and any session this process was holding is
+  closed first; otherwise the same FastAPI routes run in-process
+  (`httpx.ASGITransport`), so validation, caps and the `confirm` rule are
+  identical either way.
+- Without the web GUI, the first instrument call **auto-connects** to the last
+  resource you connected to (`last_resource` in the config file); after that the
+  session persists for the life of the MCP process.
+- Only one process can hold a VISA session reliably. If you start `dp800a-web`
+  while the MCP server holds the instrument, the next MCP call hands it over;
+  connect from the GUI after that.
 
 It speaks MCP over stdio, so you don't normally invoke it directly — register
 it with your MCP client.
@@ -121,9 +136,10 @@ the same host as `dp800a-web`:
 dp800a-mcp --http --host 0.0.0.0 --port 8000   # endpoint: http://<host>:8000/mcp/
 ```
 
-The HTTP server is still just a client to the REST backend on the same host
-(`DP800A_API_BASE`, default `http://127.0.0.1:8765`), so `dp800a-web` must be
-running too.
+With the default `auto` backend the HTTP server works on its own; if
+`dp800a-web` also runs on the same host (`DP800A_API_BASE`, default
+`http://127.0.0.1:8765`), MCP calls go through it so the GUI and agents share
+the session.
 
 On Linux, install it as a service with the provided unit
 [`deploy/dp800a-mcp.service`](deploy/dp800a-mcp.service) (adjust `User`,
@@ -155,7 +171,7 @@ src/dp800a/
   config.py        # JSON-backed persistent settings
   discovery.py     # zeroconf LXI / VXI-11 / SCPI-RAW browser
   server.py        # FastAPI app (REST + WebSocket telemetry)
-  mcp_server.py    # MCP stdio server (httpx → REST)
+  mcp_server.py    # MCP server (stdio/HTTP; REST client or in-process app)
   web/             # vanilla HTML/JS GUI
 tests/             # pytest with an in-memory FakeVisaResource
 ```

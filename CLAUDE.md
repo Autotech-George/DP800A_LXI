@@ -28,20 +28,26 @@ There is no configured linter or formatter, and no CI. Tests are the only gate.
 
 ## Architecture — the one thing to understand first
 
-**A single VISA session lives in the FastAPI backend. The MCP server does NOT touch the
-instrument directly — it is a thin `httpx` client to the REST API.** This is deliberate: the
-browser GUI and Claude can both be active without fighting over the one serial/network session.
+**Every MCP tool is an HTTP call against the FastAPI routes in `server.py`** — but those routes
+can be reached two ways, chosen per call by `--backend` / `DP800A_MCP_BACKEND`:
 
 ```
 browser GUI ─┐
              ├─► FastAPI (server.py) ─► DP800ADriver (driver.py) ─► PyVISA ─► instrument
-dp800a-mcp ──┘        REST + WS              (owns the only session, RLock-serialized)
-  (httpx → REST)
+dp800a-mcp ──┤        REST + WS              (owns the only session, RLock-serialized)
+  rest:  httpx → DP800A_API_BASE (a running dp800a-web)
+  local: httpx.ASGITransport → create_app() hosted inside the MCP process
 ```
 
-Consequence: `dp800a-web` must be running before `dp800a-mcp` is useful. `mcp_server.py`
-imports no driver code; it maps each MCP tool to an HTTP call against `DP800A_API_BASE`
-(default `http://127.0.0.1:8765`).
+- `rest` — forward to a running `dp800a-web` (shared session with the GUI).
+- `local` — `_LocalBackend` builds its own driver + `create_app()` in-process; no web GUI needed.
+- `auto` (default) — probe `/api/health` (cached 5 s); use REST if up, else local. Switching to
+  REST first `disconnect()`s the local driver so two processes never hold the instrument.
+
+Because both paths run the same routes, safety rules and error mapping never diverge — don't add
+tool logic to `mcp_server.py` that bypasses the REST routes. Server/driver modules are imported
+lazily (only in `local`), and before each non-connection tool call the MCP server reconnects to
+`config.last_resource` if the chosen backend has no session.
 
 ## Layers
 
@@ -55,10 +61,9 @@ imports no driver code; it maps each MCP tool to an HTTP call against `DP800A_AP
   `DriverError` is mapped to HTTP 400 by an exception handler. `app = create_app()` at module
   scope is what uvicorn serves.
 - **`mcp_server.py`** — MCP server; `TOOLS` list + a single `call_tool` dispatcher that forwards
-  to REST via `_call`. Runs over **stdio by default**; `main()` also accepts `--http` to serve the
+  to the REST routes via `_call_backend` (remote `dp800a-web` or in-process app, see above). Runs over **stdio by default**; `main()` also accepts `--http` to serve the
   same server over Streamable HTTP (Starlette + uvicorn) at `/mcp/` — used when running it as a
-  network service on the VM. Either transport is a thin client to the REST backend; it imports no
-  driver code.
+  network service on the VM. Transport (stdio/HTTP) and backend (rest/local/auto) are independent.
 - **`models.py`** — Pydantic v2 schemas shared across layers (`AppConfig`, `ChannelLimits`,
   `StatusSnapshot`, request/response bodies).
 - **`config.py`** — JSON persistence at `~/.dp800a/config.json`, overridable with the
