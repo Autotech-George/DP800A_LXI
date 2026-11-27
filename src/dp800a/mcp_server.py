@@ -1,4 +1,18 @@
-"""Stdio MCP server exposing DP800A control through the FastAPI backend."""
+"""MCP server exposing DP800A control (stdio or Streamable HTTP).
+
+Tools are served through the same REST routes the web GUI uses, reached by one
+of two backends:
+
+* ``rest``  - forward over HTTP to a running ``dp800a-web`` (``DP800A_API_BASE``).
+* ``local`` - run the same FastAPI app *in-process* (via ``httpx.ASGITransport``)
+  so this process owns the VISA session itself and no web GUI is needed.
+* ``auto``  (default) - per call: use ``dp800a-web`` if it answers, otherwise
+  the in-process app. Before handing over to a running web backend, the local
+  VISA session is closed so the two never hold the instrument at once.
+
+Either way the validation, safety caps and ``confirm`` rule are identical,
+because both backends run the very same routes from ``server.py``.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -13,6 +27,11 @@ from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
 API_BASE = os.environ.get("DP800A_API_BASE", "http://127.0.0.1:8765")
+BACKEND_MODES = ("auto", "rest", "local")
+BACKEND_MODE = os.environ.get("DP800A_MCP_BACKEND", "auto").lower()
+
+# Tools that must not trigger an automatic reconnect to the last instrument.
+_NO_AUTOCONNECT = {"dp800a_discover", "dp800a_connect", "dp800a_disconnect"}
 
 server = Server("dp800a")
 
@@ -26,16 +45,101 @@ def _err(msg: str) -> list[TextContent]:
     return [TextContent(type="text", text=f"ERROR: {msg}")]
 
 
-async def _call(method: str, path: str, **kwargs) -> Any:
-    url = f"{API_BASE}{path}"
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            r = await client.request(method, url, **kwargs)
-        except httpx.HTTPError as e:
+class _LocalBackend:
+    """The FastAPI app from ``server.py`` hosted in this process.
+
+    Imported lazily so ``rest`` mode never constructs a driver. The driver
+    config is re-read from disk whenever this backend is (re)selected so caps
+    or raw-SCPI changes made through the GUI are honoured.
+    """
+
+    def __init__(self, driver=None) -> None:
+        from .config import load_config
+        from .driver import DP800ADriver
+        from .server import create_app
+
+        self.driver = driver or DP800ADriver(load_config())
+        self.app = create_app(driver=self.driver)
+
+    def refresh_config(self) -> None:
+        from .config import load_config
+
+        self.driver.update_config(load_config())
+
+    def release(self) -> None:
+        if self.driver.is_connected():
+            self.driver.disconnect()
+
+    def client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=self.app),
+            base_url="http://dp800a-local",
+            timeout=30.0,
+        )
+
+
+_local: _LocalBackend | None = None
+
+
+def _get_local() -> _LocalBackend:
+    global _local
+    if _local is None:
+        _local = _LocalBackend()
+    return _local
+
+
+_PROBE_TTL = 5.0  # seconds to trust a web-backend health probe
+_probe_cache: tuple[float, bool] | None = None
+
+
+async def _rest_alive() -> bool:
+    """Is dp800a-web answering? Cached briefly so 'down' doesn't cost a probe per call."""
+    global _probe_cache
+    loop = asyncio.get_running_loop()
+    if _probe_cache is not None and loop.time() - _probe_cache[0] < _PROBE_TTL:
+        return _probe_cache[1]
+    try:
+        async with httpx.AsyncClient(timeout=1.0) as client:
+            r = await client.get(f"{API_BASE}/api/health")
+        alive = r.status_code == 200 and r.json().get("ok") is True
+    except Exception:
+        alive = False
+    _probe_cache = (loop.time(), alive)
+    return alive
+
+
+async def _select_backend() -> str:
+    """Return "rest" or "local" for the next call, per BACKEND_MODE."""
+    if BACKEND_MODE == "rest":
+        return "rest"
+    if BACKEND_MODE == "local":
+        return "local"
+    if await _rest_alive():
+        # Hand the instrument over to the web backend if we were holding it.
+        if _local is not None:
+            await asyncio.get_running_loop().run_in_executor(None, _local.release)
+        return "rest"
+    return "local"
+
+
+def _client_for(backend: str) -> httpx.AsyncClient:
+    if backend == "local":
+        local = _get_local()
+        local.refresh_config()
+        return local.client()
+    return httpx.AsyncClient(base_url=API_BASE, timeout=10.0)
+
+
+async def _request(client: httpx.AsyncClient, backend: str, method: str, path: str, **kwargs) -> Any:
+    try:
+        r = await client.request(method, path, **kwargs)
+    except httpx.HTTPError as e:
+        if backend == "rest":
             raise RuntimeError(
                 f"Cannot reach DP800A web backend at {API_BASE} ({e}). "
-                "Start it with `dp800a-web` first."
+                "Start `dp800a-web`, or run this MCP server with --backend local/auto."
             ) from e
+        raise RuntimeError(str(e)) from e
     if r.status_code >= 400:
         try:
             detail = r.json().get("detail", r.text)
@@ -48,6 +152,31 @@ async def _call(method: str, path: str, **kwargs) -> Any:
         return r.json()
     except Exception:
         return r.text
+
+
+async def _ensure_connected(client: httpx.AsyncClient, backend: str) -> None:
+    """Reconnect to the last-used instrument if the backend has no session.
+
+    Best effort: failures are swallowed so the real call reports the error.
+    """
+    try:
+        health = await _request(client, backend, "GET", "/api/health")
+        if health.get("connected"):
+            return
+        cfg = await _request(client, backend, "GET", "/api/config")
+        resource = cfg.get("last_resource")
+        if resource:
+            await _request(client, backend, "POST", "/api/connect", json={"resource": resource})
+    except Exception:
+        pass
+
+
+async def _call_backend(method: str, path: str, *, autoconnect: bool = True, **kwargs) -> Any:
+    backend = await _select_backend()
+    async with _client_for(backend) as client:
+        if autoconnect:
+            await _ensure_connected(client, backend)
+        return await _request(client, backend, method, path, **kwargs)
 
 
 # ---- tools ---------------------------------------------------------------
@@ -191,6 +320,11 @@ async def list_tools() -> list[Tool]:
 @server.call_tool()
 async def call_tool(name: str, arguments: dict | None) -> list[TextContent]:
     args = arguments or {}
+    auto = name not in _NO_AUTOCONNECT
+
+    async def _call(method: str, path: str, **kwargs) -> Any:  # noqa: F811 - binds autoconnect
+        return await _call_backend(method, path, autoconnect=auto, **kwargs)
+
     try:
         if name == "dp800a_discover":
             data = await _call("GET", "/api/discover", params={"timeout": args.get("timeout", 2.0)})
@@ -279,6 +413,7 @@ def _build_http_app():
 
 
 def main() -> None:
+    global BACKEND_MODE
     import argparse
 
     parser = argparse.ArgumentParser(description="Run the DP800A MCP server")
@@ -289,7 +424,18 @@ def main() -> None:
     )
     parser.add_argument("--host", default="127.0.0.1", help="Bind host for --http (default 127.0.0.1).")
     parser.add_argument("--port", type=int, default=8000, help="Bind port for --http (default 8000).")
+    parser.add_argument(
+        "--backend",
+        choices=BACKEND_MODES,
+        default=BACKEND_MODE if BACKEND_MODE in BACKEND_MODES else "auto",
+        help=(
+            "How to reach the instrument: 'rest' = via a running dp800a-web, "
+            "'local' = own the VISA session in this process (no web GUI needed), "
+            "'auto' = use dp800a-web when it is up, else local (default; env DP800A_MCP_BACKEND)."
+        ),
+    )
     args = parser.parse_args()
+    BACKEND_MODE = args.backend
 
     if args.http:
         import uvicorn

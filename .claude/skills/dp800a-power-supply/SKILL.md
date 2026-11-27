@@ -11,18 +11,19 @@ hardware** — read the Safety rules before enabling any output.
 ## Architecture (why calls sometimes "go nowhere")
 
 ```
-your session ──MCP(HTTP)──► dp800a-mcp (VM:8000) ──REST──► dp800a-web (VM:8765) ──PyVISA──► DP832A
-                                                              (owns the ONE VISA session)
+your session ──MCP(HTTP)──► dp800a-mcp (VM:8000) ──► dp800a-web (VM:8765), if running ──PyVISA──► DP832A
+                                                 └──► otherwise its own in-process driver ──PyVISA──► DP832A
 ```
 
-The MCP server holds no instrument state. A single VISA session lives in the
-`dp800a-web` backend on the VM, shared by every client (MCP sessions and the
-browser GUI alike). Consequences:
+`dp800a-mcp` works with or without the web GUI. When `dp800a-web` is running it
+forwards there (one VISA session shared with the browser GUI); when it isn't, it
+opens the instrument itself. Consequences:
 
 - **The connection is global.** If any client connected earlier, you are already
   connected — don't reconnect blindly. Check `dp800a_status` first.
-- Connection **persists** until someone disconnects or `dp800a-web` restarts.
-  There is no auto-reconnect on service start or VM reboot.
+- Instrument calls **auto-reconnect** to the last-used resource if no session is
+  open (e.g. after a service restart or VM reboot), so `dp800a_status` normally
+  just works.
 - If `dp800a_status` shows `connected: false`, instrument calls fail with
   *"Not connected to any instrument"*. `dp800a_status` and `dp800a_discover`
   still work while disconnected.
@@ -106,7 +107,7 @@ a fault.
 
 ## Troubleshooting
 
-`Cannot reach DP800A web backend` → `dp800a-web` is down on the VM.
+`Cannot reach DP800A web backend` → only with `--backend rest`: `dp800a-web` is down on the VM.
 MCP tools missing entirely → the `dp800a-mcp` service is down or the URL is wrong.
 
 On the VM (`tech@lxiserver`, `10.0.0.36`):
